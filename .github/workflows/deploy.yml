@@ -1,0 +1,90 @@
+name: deploy api
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race onto the same Lambda.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required to request the OIDC token
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REPOSITORY: neel-portfolio-api
+  LAMBDA_FUNCTION: neel-portfolio-api
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Auth rules self-check
+        run: python -m app.auth
+      - name: Rebuild-trigger rules self-check
+        run: python -m app.publish
+      - name: Migration test
+        run: python test_migration.py
+      - name: App imports cleanly
+        run: python -c "import app.main; assert app.main.handler, 'lambda handler missing'"
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY"
+          docker build --platform linux/amd64 -t "$IMAGE:$TAG" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:latest"
+          echo "IMAGE_URI=$IMAGE:$TAG" >> "$GITHUB_ENV"
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --image-uri "$IMAGE_URI" \
+            --region "$AWS_REGION" >/dev/null
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_FUNCTION" --region "$AWS_REGION"
+
+      - name: Smoke test
+        run: |
+          URL="${{ secrets.API_URL }}"
+          for i in $(seq 1 5); do
+            body="$(curl -fsS --max-time 20 "$URL" || true)"
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "$body"
+              echo "API healthy"
+              exit 0
+            fi
+            echo "attempt $i failed, retrying..."; sleep 10
+          done
+          echo "::error::API did not return a healthy response after deploy"
+          exit 1

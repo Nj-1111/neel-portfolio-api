@@ -18,6 +18,9 @@ env:
   AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: neel-portfolio-api
   LAMBDA_FUNCTION: neel-portfolio-api
+  # Public identifiers, not secrets - see note in the web workflow.
+  AWS_ROLE_ARN: arn:aws:iam::814808959987:role/portfolio-github-actions-deploy
+  API_URL: https://4jidl4ffyjuaqq2vht3xff6z6m0iedbx.lambda-url.ap-southeast-2.on.aws
 
 jobs:
   verify:
@@ -47,7 +50,7 @@ jobs:
       - name: Assume AWS role via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to ECR
@@ -76,7 +79,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          URL="${{ secrets.API_URL }}"
+          URL="${{ env.API_URL }}"
           for i in $(seq 1 5); do
             body="$(curl -fsS --max-time 20 "$URL" || true)"
             if echo "$body" | grep -q '"status":"ok"'; then

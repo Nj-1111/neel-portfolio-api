@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 import uuid
 
-from ..database import get_session
+from ..database import get_session, next_sort_order
 from ..models import Education
 
 router = APIRouter()
@@ -33,6 +33,8 @@ def list_education(session: Session = Depends(get_session)):
 
 @router.post("", status_code=201)
 def create_education(data: EducationCreate, session: Session = Depends(get_session)):
+    if not data.sort_order:
+        data.sort_order = next_sort_order(session, Education)
     item = Education(id=str(uuid.uuid4()), **data.model_dump())
     session.add(item)
     session.commit()

@@ -9,7 +9,7 @@ import uuid
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
-from ..database import get_session
+from ..database import get_session, next_sort_order
 from ..models import Project
 
 router = APIRouter()
@@ -47,6 +47,8 @@ def list_projects(session: Session = Depends(get_session)):
 
 @router.post("", status_code=201)
 def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
+    if not data.sort_order:
+        data.sort_order = next_sort_order(session, Project)
     project = Project(id=str(uuid.uuid4()), created_at=utcnow(), **data.model_dump())
     session.add(project)
     session.commit()

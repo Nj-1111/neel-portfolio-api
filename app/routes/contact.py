@@ -9,7 +9,7 @@ import uuid
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
-from ..database import get_session
+from ..database import get_session, next_sort_order
 from ..models import ContactSubmission, ContactMethod, ContactInfo
 
 router = APIRouter()
@@ -119,6 +119,8 @@ def list_methods(session: Session = Depends(get_session)):
 
 @router.post("/methods", status_code=201)
 def create_method(data: MethodCreate, session: Session = Depends(get_session)):
+    if not data.sort_order:
+        data.sort_order = next_sort_order(session, ContactMethod)
     item = ContactMethod(id=str(uuid.uuid4()), **data.model_dump())
     session.add(item)
     session.commit()

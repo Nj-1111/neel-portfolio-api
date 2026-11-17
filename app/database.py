@@ -137,6 +137,19 @@ def migrate():
             )
 
 
+def next_sort_order(session, model) -> int:
+    """Next append-at-end ordinal for a model with a sort_order column.
+
+    Clients must not invent this value. The admin used to send Date.now(),
+    which is ~1.7e12 and overflows a Postgres INTEGER (max 2,147,483,647).
+    SQLite tolerated it, Postgres does not, so every create 500'd after the
+    move to Supabase.
+    """
+    from sqlalchemy import func, select as sa_select
+    current = session.execute(sa_select(func.max(model.sort_order))).scalar()
+    return (current or 0) + 1
+
+
 def get_session():
     with Session(engine) as session:
         yield session
